@@ -81,6 +81,7 @@ npm run preview     # 预览 dist/，实际地址以终端输出为准
 
 ## 项目资料
 
+- [队友操作说明：用 Qoder 协作开发](docs/qoder-collaboration-guide.md)：从首次运行到分支开发、PR 审核、冲突处理和同步更新。
 - [项目归纳](docs/project-overview.md)：定位、核心流程、赛道思路和当前交付边界。
 - [改进路线图](docs/roadmap.md)：可靠性、无障碍验证、输入扩展的分阶段计划。
 - [已知问题](docs/known-limitations.md)：静态审阅发现的缺陷与未验证事项。
