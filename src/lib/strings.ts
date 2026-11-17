@@ -1,7 +1,8 @@
 /** 所有朗读文案集中在这里，方便统一语气和以后做多语言 */
 export const HELP =
   '图表已获得焦点。左右方向键逐点收听，上方向键跳到最高点，下方向键跳到最低点，' +
-  'Home 和 End 跳到第一个和最后一个，空格播放或停止，S 听总结，R 重读当前点，' +
+  'Home 和 End 跳到第一个和最后一个，空格播放整条或暂停，暂停后再按空格从暂停处继续，' +
+  'Esc 停止播放，S 听总结，R 重读当前点，' +
   'P 听最低音和最高音，T 切换浏览器语音，B 进入闭眼模式，数字键 1 到 4 切换图表，Tab 离开图表。';
 
 export const CHART_HINT = (title: string) =>
@@ -18,10 +19,20 @@ export const NO_VOICE_NOTICE =
 
 export const PLAY_END = '播放结束。';
 
+/** 暂停时读出进度，并说明下一步能做什么，避免用户在“暂停”和“停止”之间猜 */
+export const PLAY_PAUSED = (point: string) => `已暂停，当前是${point}。再按空格继续。`;
+
+export const PLAY_PAUSE_REF = '已暂停，参考音还没播完。再按空格继续。';
+
+export const PLAY_RESUME = '继续播放。';
+
+export const PLAY_STOPPED = (point: string | null) =>
+  point ? `已停止播放，当前是${point}。再按空格从头播放。` : '已停止播放。再按空格从头播放。';
+
 export const REFERENCE_HINT = '先听最低音，再听最高音。';
 
 export const BLIND_ON =
-  '已进入闭眼模式。左右方向键听数据，空格播放或停止，S 听总结，Esc 退出。';
+  '已进入闭眼模式。左右方向键听数据，空格播放或暂停，S 听总结，Esc 退出闭眼模式，退出后按 Esc 停止播放。';
 
 export const BLIND_OFF = '已退出闭眼模式。';
 

@@ -21,6 +21,10 @@ import {
   HELP,
   NO_VOICE_NOTICE,
   PLAY_END,
+  PLAY_PAUSED,
+  PLAY_PAUSE_REF,
+  PLAY_RESUME,
+  PLAY_STOPPED,
   REFERENCE_HINT,
   TOUR_ABORTED,
   TOUR_INTRO,
@@ -33,6 +37,9 @@ import { ChartView } from './components/ChartView';
 import { FirstRunDialog } from './components/FirstRunDialog';
 import { BrowseButtons, CustomDataForm, DataTable, KeyHelp, SettingsPanel } from './components/Panels';
 
+/** 整条播放的状态机：空格在未播放/播放中/已暂停之间切换，Esc 显式停止 */
+type PlayMode = 'idle' | 'playing' | 'paused';
+
 export default function App() {
   const [cfg, setCfg] = useState<Settings>(() => loadSettings());
   const [sets, setSets] = useState<Dataset[]>(SAMPLES);
@@ -42,7 +49,7 @@ export default function App() {
   });
   const [idx, setIdx] = useState(-1);
   const [blind, setBlind] = useState(false);
-  const [playing, setPlaying] = useState(false);
+  const [playMode, setPlayMode] = useState<PlayMode>('idle');
   const [tourRunning, setTourRunning] = useState(false);
   const [voiceOk, setVoiceOk] = useState(true);
   const [wechat] = useState(() => isWeChat());
@@ -52,9 +59,8 @@ export default function App() {
   const chartRef = useRef<HTMLDivElement>(null);
   const blindExitRef = useRef<HTMLButtonElement>(null);
   const speakTimer = useRef(0);
-  const playTimer = useRef(0);
   const playToken = useRef(0);
-  const playingRef = useRef(false);
+  const playModeRef = useRef<PlayMode>('idle');
   const tourRef = useRef<AbortController | null>(null);
   const announced = useRef('');
   const suppressHint = useRef(false);
@@ -73,9 +79,9 @@ export default function App() {
     });
   }, []);
 
-  const setPlayingBoth = useCallback((v: boolean) => {
-    playingRef.current = v;
-    setPlaying(v);
+  const setPlayModeBoth = useCallback((m: PlayMode) => {
+    playModeRef.current = m;
+    setPlayMode(m);
   }, []);
 
   /** 程序化聚焦图表时，避免“已进入图表”的提示盖掉刚说的话 */
@@ -86,18 +92,18 @@ export default function App() {
     el.focus();
   }, []);
 
+  /** 任何改变数据或焦点情境的操作都走这里：旧播放的进度、暂停状态和回调一起作废 */
   const stopAudio = useCallback(() => {
     window.clearTimeout(speakTimer.current);
-    window.clearTimeout(playTimer.current);
     playToken.current += 1;
     sonifier.current?.stop();
     stopSpeech();
-    setPlayingBoth(false);
-  }, [setPlayingBoth]);
+    setPlayModeBoth('idle');
+  }, [setPlayModeBoth]);
 
   const go = useCallback(
     (i: number) => {
-      if (playingRef.current) stopAudio();
+      if (playModeRef.current !== 'idle') stopAudio();
       window.clearTimeout(speakTimer.current);
       stopSpeech();
       const s = sonifier.current!;
@@ -118,44 +124,61 @@ export default function App() {
     (d: Dataset, start: number, onEnd?: () => void, announceEnd = true) => {
       stopAudio();
       const token = (playToken.current += 1);
-      setPlayingBoth(true);
-      const begin = () => {
-        if (token !== playToken.current) return;
-        sonifier.current!.playSeries(
-          d.values,
-          d.type,
-          cfg.speed,
-          (i) => {
-            if (token === playToken.current) setIdx(i);
-          },
-          () => {
-            if (token !== playToken.current) return;
-            setPlayingBoth(false);
-            if (announceEnd) speak(PLAY_END);
-            onEnd?.();
-          },
-          start,
-        );
-      };
-      if (cfg.refTone) {
-        sonifier.current!.playReference(d.values);
-        playTimer.current = window.setTimeout(begin, 1300);
-      } else {
-        begin();
-      }
+      setPlayModeBoth('playing');
+      sonifier.current!.playSeries(
+        d.values,
+        d.type,
+        cfg.speed,
+        (i) => {
+          if (token === playToken.current) setIdx(i);
+        },
+        () => {
+          if (token !== playToken.current) return;
+          setPlayModeBoth('idle');
+          if (announceEnd) speak(PLAY_END);
+          onEnd?.();
+        },
+        start,
+        cfg.refTone,
+      );
     },
-    [cfg.speed, cfg.refTone, speak, stopAudio, setPlayingBoth],
+    [cfg.speed, cfg.refTone, speak, stopAudio, setPlayModeBoth],
   );
 
-  const togglePlay = useCallback(() => {
-    if (playingRef.current) {
-      const at = idx;
+  const pausePlay = useCallback(() => {
+    const at = sonifier.current!.pause();
+    if (!at) {
+      // 数据为空等情况来不及暂停，把状态收回未播放
       stopAudio();
-      speak(at >= 0 ? `已停止播放，当前是${pointText(ds, at, st)}` : '已停止播放。');
       return;
     }
-    playDataset(ds, idx >= 0 ? idx : 0);
-  }, [ds, idx, st, playDataset, speak, stopAudio]);
+    setPlayModeBoth('paused');
+    if (at.inReference) {
+      speak(PLAY_PAUSE_REF);
+      return;
+    }
+    setIdx(at.index);
+    speak(PLAY_PAUSED(pointText(ds, at.index, st)));
+  }, [ds, setPlayModeBoth, speak, st, stopAudio]);
+
+  const resumePlay = useCallback(() => {
+    sonifier.current!.resume();
+    setPlayModeBoth('playing');
+    speak(PLAY_RESUME);
+  }, [setPlayModeBoth, speak]);
+
+  /** 显式停止：清掉进度，下一次空格从头播放 */
+  const stopPlayback = useCallback(() => {
+    const at = idx;
+    stopAudio();
+    speak(PLAY_STOPPED(at >= 0 ? pointText(ds, at, st) : null));
+  }, [ds, idx, speak, stopAudio, st]);
+
+  const togglePlay = useCallback(() => {
+    if (playModeRef.current === 'playing') pausePlay();
+    else if (playModeRef.current === 'paused') resumePlay();
+    else playDataset(ds, 0);
+  }, [ds, pausePlay, playDataset, resumePlay]);
 
   const switchTo = useCallback(
     (k: number, announce = true) => {
@@ -303,6 +326,8 @@ export default function App() {
       case 'Escape':
         action = () => {
           if (blind) toggleBlind(false);
+          // 闭眼模式内 Esc 先退出模式，这里负责显式停止
+          else if (playModeRef.current !== 'idle') stopPlayback();
           else stopAudio();
         };
         break;
@@ -491,8 +516,20 @@ export default function App() {
           <div className="sum">总结：{summary}</div>
 
           <div className="ctrl">
-            <button type="button" className="go" onClick={togglePlay}>
-              {playing ? '■ 停止（空格）' : '▶ 播放整条（空格）'}
+            <button type="button" className="go" onClick={togglePlay} aria-keyshortcuts="Space">
+              {playMode === 'playing'
+                ? '⏸ 暂停（空格）'
+                : playMode === 'paused'
+                  ? '▶ 继续（空格）'
+                  : '▶ 播放整条（空格）'}
+            </button>
+            <button
+              type="button"
+              onClick={stopPlayback}
+              disabled={playMode === 'idle'}
+              aria-keyshortcuts="Escape"
+            >
+              ■ 停止（Esc）
             </button>
             <button
               type="button"
@@ -528,7 +565,7 @@ export default function App() {
       <footer>示例数据为虚构，仅用于演示。</footer>
 
       <div className={blind ? 'blind on' : 'blind'}>
-        <p className="blind-tip">闭眼模式 · ←→ 听数据 · 空格播放/停止 · S 总结 · Esc 退出</p>
+        <p className="blind-tip">闭眼模式 · ←→ 听数据 · 空格播放/暂停/继续 · S 总结 · Esc 退出</p>
         <button
           ref={blindExitRef}
           type="button"
