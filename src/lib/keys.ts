@@ -128,6 +128,7 @@ export interface GlobalKeyContext {
  */
 export function handleGlobalKey(e: GlobalKeyEvent, ctx: GlobalKeyContext): GlobalAction {
   if (!ctx.asked) return null;
+  if (e.key === 'Escape' && (e.isComposing || e.ctrlKey || e.altKey || e.metaKey)) return null;
   if (ctx.tourRunning) {
     e.preventDefault();
     return 'abortTour';

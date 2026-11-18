@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handleChartKey, handleGlobalKey, type ChartKeyEvent } from './keys';
+import { handleChartKey, handleGlobalKey, type ChartKeyEvent, type GlobalKeyEvent } from './keys';
 
 function press(key: string, mods: Partial<ChartKeyEvent> = {}, blind = false) {
   let prevented = false;
@@ -106,6 +106,7 @@ describe('handleGlobalKey 全局范围', () => {
   const run = (
     key: string,
     ctx: Partial<{ asked: boolean; tourRunning: boolean; blind: boolean; typing: boolean }> = {},
+    mods: Partial<GlobalKeyEvent> = {},
   ) => {
     let prevented = false;
     const action = handleGlobalKey(
@@ -114,6 +115,7 @@ describe('handleGlobalKey 全局范围', () => {
         preventDefault: () => {
           prevented = true;
         },
+        ...mods,
       },
       { asked: true, tourRunning: false, blind: false, typing: false, ...ctx },
     );
@@ -147,6 +149,17 @@ describe('handleGlobalKey 全局范围', () => {
       prevented: false,
     });
   });
+
+  it.each(['isComposing', 'ctrlKey', 'altKey', 'metaKey'] as const)(
+    '%s 状态下 Esc 不退出闭眼模式或取消导览，也不阻止默认行为', (flag) => {
+      for (const tourRunning of [false, true]) {
+        expect(run('Escape', { blind: true, typing: true, tourRunning }, { [flag]: true })).toEqual({
+          action: null,
+          prevented: false,
+        });
+      }
+    },
+  );
 
   it('首次运行对话框未选择前不响应全局按键', () => {
     expect(run('q', { asked: false, tourRunning: true }).action).toBeNull();

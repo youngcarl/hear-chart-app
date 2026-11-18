@@ -134,6 +134,41 @@ test('闭眼模式中文本框聚焦后 Esc 仍退出并回到图表', async ({ 
   await expect(page.locator('[aria-live="polite"]')).toHaveText('已退出闭眼模式。');
 });
 
+for (const shortcut of ['组合输入', 'Control+Escape', 'Alt+Escape', 'Meta+Escape'] as const) {
+  test(`闭眼模式中文本框 ${shortcut} 不退出、不移动焦点或阻止默认行为`, async ({ page }) => {
+    await openApp(page);
+    const chart = page.locator('.chart');
+    const input = page.locator('#mData');
+    await input.fill('周一,12\n周二,18');
+    await chart.focus();
+    await page.keyboard.press('b');
+    await expect(page.locator('.blind.on')).toHaveCount(1);
+    await input.focus();
+    await expect(input).toBeFocused();
+    await page.evaluate(() => {
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          document.body.dataset.escapePrevented = String(event.defaultPrevented);
+        }
+      });
+    });
+    if (shortcut === '组合输入') {
+      await input.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Escape', code: 'Escape', isComposing: true, bubbles: true, cancelable: true,
+      })));
+    } else {
+      await page.keyboard.press(shortcut);
+    }
+    await expect(page.locator('body')).toHaveAttribute('data-escape-prevented', 'false');
+    await expect(page.locator('.blind.on')).toHaveCount(1);
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('周一,12\n周二,18');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.blind.on')).toHaveCount(0);
+    await expect(chart).toBeFocused();
+  });
+}
+
 test('未开启闭眼模式时文本框 Esc 不被应用拦截', async ({ page }) => {
   await openApp(page);
   const input = page.locator('#mData');
