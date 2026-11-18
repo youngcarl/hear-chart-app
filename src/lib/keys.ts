@@ -128,11 +128,12 @@ export interface GlobalKeyContext {
  */
 export function handleGlobalKey(e: GlobalKeyEvent, ctx: GlobalKeyContext): GlobalAction {
   if (!ctx.asked) return null;
+  if (e.key === 'Escape' && (e.isComposing || e.ctrlKey || e.altKey || e.metaKey)) return null;
   if (ctx.tourRunning) {
     e.preventDefault();
     return 'abortTour';
   }
-  if (ctx.typing) return null;
   if (ctx.blind && e.key === 'Escape') return 'exitBlind';
+  if (ctx.typing) return null;
   return null;
 }

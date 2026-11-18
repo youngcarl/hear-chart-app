@@ -85,11 +85,19 @@ test('图表聚焦时重复空格阻止默认行为且不切换播放，方向�
   await openApp(page);
   const chart = page.locator('.chart');
   const playback = page.getByRole('button', { name: '播放整条（空格）', exact: false });
+  await chart.scrollIntoViewIfNeeded();
   await chart.focus();
-  await chart.press('Space');
+  const scrollY = await page.evaluate(() => window.scrollY);
+  await page.keyboard.down('Space');
   await expect(playback).toHaveCount(0);
   const pause = page.getByRole('button', { name: '暂停（空格）', exact: false });
   await expect(pause).toBeVisible();
+  await page.keyboard.down('Space');
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(300);
+  await expect(pause).toBeVisible();
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollY);
+  await page.keyboard.up('Space');
   const prevented = await chart.evaluate((el) => {
     const event = new KeyboardEvent('keydown', {
       key: ' ', code: 'Space', repeat: true, bubbles: true, cancelable: true,
@@ -107,4 +115,75 @@ test('图表聚焦时重复空格阻止默认行为且不切换播放，方向�
     key: 'ArrowRight', repeat: true, bubbles: true, cancelable: true,
   })));
   await expect(page.locator('.now')).not.toHaveText(first!);
+});
+
+test('闭眼模式中文本框聚焦后 Esc 仍退出并回到图表', async ({ page }) => {
+  await openApp(page);
+  const chart = page.locator('.chart');
+  const input = page.locator('#mData');
+  await input.fill('周一,12\n周二,18');
+  await chart.focus();
+  await page.keyboard.press('b');
+  await expect(page.locator('.blind.on')).toHaveCount(1);
+  await input.focus();
+  await expect(input).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.blind.on')).toHaveCount(0);
+  await expect(chart).toBeFocused();
+  await expect(input).toHaveValue('周一,12\n周二,18');
+  await expect(page.locator('[aria-live="polite"]')).toHaveText('已退出闭眼模式。');
+});
+
+for (const shortcut of ['组合输入', 'Control+Escape', 'Alt+Escape', 'Meta+Escape'] as const) {
+  test(`闭眼模式中文本框 ${shortcut} 不退出、不移动焦点或阻止默认行为`, async ({ page }) => {
+    await openApp(page);
+    const chart = page.locator('.chart');
+    const input = page.locator('#mData');
+    await input.fill('周一,12\n周二,18');
+    await chart.focus();
+    await page.keyboard.press('b');
+    await expect(page.locator('.blind.on')).toHaveCount(1);
+    await input.focus();
+    await expect(input).toBeFocused();
+    await page.evaluate(() => {
+      window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          document.body.dataset.escapePrevented = String(event.defaultPrevented);
+        }
+      });
+    });
+    if (shortcut === '组合输入') {
+      await input.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Escape', code: 'Escape', isComposing: true, bubbles: true, cancelable: true,
+      })));
+    } else {
+      await page.keyboard.press(shortcut);
+    }
+    await expect(page.locator('body')).toHaveAttribute('data-escape-prevented', 'false');
+    await expect(page.locator('.blind.on')).toHaveCount(1);
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue('周一,12\n周二,18');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.blind.on')).toHaveCount(0);
+    await expect(chart).toBeFocused();
+  });
+}
+
+test('未开启闭眼模式时文本框 Esc 不被应用拦截', async ({ page }) => {
+  await openApp(page);
+  const input = page.locator('#mData');
+  await input.fill('周一,12\n周二,18');
+  await expect(page.locator('.blind.on')).toHaveCount(0);
+  await page.evaluate(() => {
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        document.body.dataset.escapePrevented = String(event.defaultPrevented);
+      }
+    });
+  });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('body')).toHaveAttribute('data-escape-prevented', 'false');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('周一,12\n周二,18');
+  await expect(page.locator('.blind.on')).toHaveCount(0);
 });
