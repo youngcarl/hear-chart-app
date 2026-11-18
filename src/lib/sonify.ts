@@ -23,6 +23,8 @@ export class Sonifier {
   private ac: AudioContext | null = null;
   private oscs: OscillatorNode[] = [];
   private timers: number[] = [];
+  /** 每次 stop/重新播放递增，旧定时器即使漏清也不会回调 */
+  private gen = 0;
 
   private ctx(): AudioContext {
     if (!this.ac) {
@@ -127,11 +129,13 @@ export class Sonifier {
     if (!n) return;
     const vals = values.map(safe);
     const a = this.ctx();
+    const gen = this.gen;
     const start = Math.max(0, Math.min(startIndex, n - 1));
     const count = n - start;
     const mn = Math.min(...vals);
     const mx = Math.max(...vals);
     const t0 = a.currentTime + 0.05;
+    let end = t0;
 
     if (type === 'line' && count > 1) {
       const o = a.createOscillator();
@@ -143,7 +147,7 @@ export class Sonifier {
         o.frequency.linearRampToValueAtTime(pitchOf(vals[i], mn, mx), t0 + (i - start) * step);
         p?.pan.linearRampToValueAtTime(panOf(i, n), t0 + (i - start) * step);
       }
-      const end = t0 + (count - 1) * step + 0.2;
+      end = t0 + (count - 1) * step + 0.2;
       g.gain.setValueAtTime(0, t0);
       g.gain.linearRampToValueAtTime(0.22, t0 + 0.03);
       g.gain.setValueAtTime(0.22, end - 0.08);
@@ -155,7 +159,9 @@ export class Sonifier {
       // 单点折线仍用正弦，与折线的音色保持一致
       const wave: OscillatorType = type === 'bar' ? 'triangle' : 'sine';
       for (let i = start; i < n; i++) {
-        this.tone(pitchOf(vals[i], mn, mx), panOf(i, n), t0 + (i - start) * step, step * 0.8, wave);
+        const at = t0 + (i - start) * step;
+        this.tone(pitchOf(vals[i], mn, mx), panOf(i, n), at, step * 0.8, wave);
+        end = Math.max(end, at + step * 0.8);
       }
     }
 
@@ -163,7 +169,9 @@ export class Sonifier {
     if (mn !== mx) {
       for (const i of [vals.indexOf(mx), vals.indexOf(mn)]) {
         if (i < start) continue;
-        this.tone(pitchOf(vals[i], mn, mx) * 2, panOf(i, n), t0 + (i - start) * step + 0.05, 0.09, 'sine', 0.12);
+        const at = t0 + (i - start) * step + 0.05;
+        this.tone(pitchOf(vals[i], mn, mx) * 2, panOf(i, n), at, 0.09, 'sine', 0.12);
+        end = Math.max(end, at + 0.09);
       }
     }
 
@@ -173,22 +181,33 @@ export class Sonifier {
         const prev = vals[i - 1];
         const cur = vals[i];
         if ((prev < 0 && cur >= 0) || (prev > 0 && cur <= 0)) {
-          this.tone(1500, panOf(i, n), t0 + (i - start) * step, 0.04, 'sine', 0.06);
+          const at = t0 + (i - start) * step;
+          this.tone(1500, panOf(i, n), at, 0.04, 'sine', 0.06);
+          end = Math.max(end, at + 0.04);
         }
       }
     }
 
     for (let i = start; i < n; i++) {
-      this.timers.push(window.setTimeout(() => onStep(i), ((i - start) * step + 0.05) * 1000));
+      this.timers.push(
+        window.setTimeout(() => {
+          if (gen === this.gen) onStep(i);
+        }, ((i - start) * step + 0.05) * 1000),
+      );
     }
     if (onEnd) {
+      // 等最后一个振荡器（含极值 / 过零提示音）真正结束再报告完成
+      const delay = Math.max(0, (end - a.currentTime + 0.05) * 1000);
       this.timers.push(
-        window.setTimeout(onEnd, ((count - 1) * step + 0.35) * 1000),
+        window.setTimeout(() => {
+          if (gen === this.gen) onEnd();
+        }, delay),
       );
     }
   }
 
   stop() {
+    this.gen += 1;
     this.timers.forEach((t) => window.clearTimeout(t));
     this.timers = [];
     this.oscs.forEach((o) => {

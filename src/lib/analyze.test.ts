@@ -192,11 +192,27 @@ describe('summarize', () => {
     expect(text).toContain('最高一项占 50%');
   });
 
-  it('柱状图全为负数时不输出负百分比之类的怪话', () => {
+  it('柱状图全为负数时只报净合计，不报普通占比', () => {
     const text = summarize(ds([-5, -3, -2], 'bar'));
-    expect(text).not.toContain('合计');
+    expect(text).toContain('含负值，净合计 负 10元');
     expect(text).not.toContain('占 ');
     expect(text).not.toContain('-');
+  });
+
+  it('柱状图混合正负值时用净合计，不用普通占比', () => {
+    const text = summarize(ds([-5, 10], 'bar'));
+    expect(text).toContain('含负值，净合计 5元');
+    expect(text).not.toContain('占');
+
+    const zero = summarize(ds([-5, 5], 'bar'));
+    expect(zero).toContain('净合计 0元');
+    expect(zero).not.toContain('占');
+  });
+
+  it('柱状图全零时说明没有变化', () => {
+    const text = summarize(ds([0, 0, 0], 'bar'));
+    expect(text).toContain('所有数值都是 0元，没有变化');
+    expect(text).not.toContain('占');
   });
 
   it('大数字用万 / 亿朗读', () => {

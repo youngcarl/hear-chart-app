@@ -175,12 +175,16 @@ export function summarize(d: Dataset, s: Stats = stats(d.values)): string {
 
     out += describePeaks(peaks, L);
   } else {
-    // 柱状图：合计与占比只在合计为正时有意义，负数场景不输出怪话
+    // 柱状图：普通“占合计百分之几”只在全部非负时成立；
+    // 含负值时改用明确的净合计，避免“最高一项占 200%”这类误导
     const sum = v.reduce((a, b) => a + b, 0);
-    if (sum > 0) {
+    const hasNegative = v.some((x) => x < 0);
+    if (!hasNegative && sum > 0) {
       out += `合计 ${fmtCn(sum)}${u}`;
       if (v[maxI] > 0) out += `，最高一项占 ${Math.round((v[maxI] / sum) * 100)}%`;
       out += '。';
+    } else if (hasNegative) {
+      out += `含负值，净合计 ${fmtCn(sum)}${u}。`;
     }
   }
 

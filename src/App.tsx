@@ -5,10 +5,12 @@ import { briefSummary, pointText, stats, summarize, typeName } from './lib/analy
 import { Sonifier } from './lib/sonify';
 import {
   bindLive,
+  cancelPendingSpeech,
   isWeChat,
   probeVoiceSupport,
   say,
   sayAsync,
+  scheduleSpeech,
   stopSpeech,
   unlockSpeech,
 } from './lib/speech';
@@ -27,6 +29,7 @@ import {
   TOUR_OUTRO,
   WECHAT_NOTICE,
 } from './lib/strings';
+import { handleChartKey } from './lib/keys';
 import { runTour } from './lib/tour';
 import { SAMPLES } from './data/samples';
 import { ChartView } from './components/ChartView';
@@ -51,7 +54,7 @@ export default function App() {
   if (!sonifier.current) sonifier.current = new Sonifier();
   const chartRef = useRef<HTMLDivElement>(null);
   const blindExitRef = useRef<HTMLButtonElement>(null);
-  const speakTimer = useRef(0);
+  const ttsRef = useRef(cfg.tts);
   const playTimer = useRef(0);
   const playToken = useRef(0);
   const playingRef = useRef(false);
@@ -63,7 +66,11 @@ export default function App() {
   const st = useMemo(() => stats(ds.values), [ds]);
   const summary = useMemo(() => summarize(ds, st), [ds, st]);
 
-  const speak = useCallback((t: string) => say(t, cfg.tts), [cfg.tts]);
+  // 延迟回调也读最新设置，避免关闭语音后仍用旧值朗读
+  useEffect(() => {
+    ttsRef.current = cfg.tts;
+  }, [cfg.tts]);
+  const speak = useCallback((t: string) => say(t, ttsRef.current), []);
 
   const updateCfg = useCallback((patch: Partial<Settings>) => {
     setCfg((prev) => {
@@ -72,6 +79,20 @@ export default function App() {
       return next;
     });
   }, []);
+
+  /** 语音开关的唯一入口：关闭时立即停掉当前朗读并取消待播任务 */
+  const applyTts = useCallback(
+    (next: boolean) => {
+      ttsRef.current = next;
+      updateCfg({ tts: next });
+      if (!next) {
+        cancelPendingSpeech();
+        stopSpeech();
+      }
+      say(next ? '浏览器语音已打开。' : '浏览器语音已关闭，只通过读屏软件朗读。', next);
+    },
+    [updateCfg],
+  );
 
   const setPlayingBoth = useCallback((v: boolean) => {
     playingRef.current = v;
@@ -87,7 +108,7 @@ export default function App() {
   }, []);
 
   const stopAudio = useCallback(() => {
-    window.clearTimeout(speakTimer.current);
+    cancelPendingSpeech();
     window.clearTimeout(playTimer.current);
     playToken.current += 1;
     sonifier.current?.stop();
@@ -98,7 +119,7 @@ export default function App() {
   const go = useCallback(
     (i: number) => {
       if (playingRef.current) stopAudio();
-      window.clearTimeout(speakTimer.current);
+      cancelPendingSpeech();
       stopSpeech();
       const s = sonifier.current!;
       if (i < 0 || i >= ds.values.length) {
@@ -108,8 +129,8 @@ export default function App() {
       }
       setIdx(i);
       s.playPoint(ds.values, i, ds.type);
-      // 先听到音高，再听到数值
-      speakTimer.current = window.setTimeout(() => speak(pointText(ds, i, st)), 220);
+      // 先听到音高，再听到数值；关闭语音时这个待播任务会被取消
+      scheduleSpeech(() => speak(pointText(ds, i, st)), 220);
     },
     [ds, st, speak, stopAudio],
   );
@@ -269,70 +290,65 @@ export default function App() {
 
   const onChartKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (tourRunning) return;
-    const key = e.key;
-    if (key === 'Tab' && blind) {
-      // 闭眼模式只有“退出闭眼模式”一个可见控件，Tab 直接送过去
-      e.preventDefault();
-      blindExitRef.current?.focus();
-      return;
-    }
+    const action = handleChartKey(
+      {
+        key: e.key,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        altKey: e.altKey,
+        isComposing: e.nativeEvent.isComposing || e.keyCode === 229,
+        preventDefault: () => e.preventDefault(),
+        stopPropagation: () => e.stopPropagation(),
+      },
+      { blind },
+    );
     const n = ds.values.length;
-    let action: (() => void) | undefined;
-    switch (key) {
-      case 'ArrowRight':
-        action = () => go(idx + 1);
+    switch (action) {
+      case 'next':
+        go(idx + 1);
         break;
-      case 'ArrowLeft':
-        action = () => go(idx < 0 ? 0 : idx - 1);
+      case 'prev':
+        go(idx < 0 ? 0 : idx - 1);
         break;
-      case 'ArrowUp':
-        action = () => go(st.maxI);
+      case 'max':
+        go(st.maxI);
         break;
-      case 'ArrowDown':
-        action = () => go(st.minI);
+      case 'min':
+        go(st.minI);
         break;
-      case 'Home':
-        action = () => go(0);
+      case 'first':
+        go(0);
         break;
-      case 'End':
-        action = () => go(n - 1);
+      case 'last':
+        go(n - 1);
         break;
-      case ' ':
-        action = togglePlay;
+      case 'togglePlay':
+        togglePlay();
         break;
-      case 'Escape':
-        action = () => {
-          if (blind) toggleBlind(false);
-          else stopAudio();
-        };
+      case 'escape':
+        if (blind) toggleBlind(false);
+        else stopAudio();
         break;
-      default: {
-        const k = key.toLowerCase();
-        if (k === 's') {
-          action = () => {
-            stopAudio();
-            speak(summary);
-          };
-        } else if (k === 'r') {
-          action = () => (idx >= 0 ? go(idx) : speak('还没有选中数据点，按右方向键开始。'));
-        } else if (k === 'p') {
-          action = () => {
-            stopAudio();
-            sonifier.current!.playReference(ds.values);
-            speak(REFERENCE_HINT);
-          };
-        } else if (k === 'h') {
-          action = () => {
-            stopAudio();
-            speak(HELP);
-          };
-        }
-      }
-    }
-    if (action) {
-      e.preventDefault();
-      e.stopPropagation();
-      action();
+      case 'summary':
+        stopAudio();
+        speak(summary);
+        break;
+      case 'reread':
+        if (idx >= 0) go(idx);
+        else speak('还没有选中数据点，按右方向键开始。');
+        break;
+      case 'reference':
+        stopAudio();
+        sonifier.current!.playReference(ds.values);
+        speak(REFERENCE_HINT);
+        break;
+      case 'help':
+        stopAudio();
+        speak(HELP);
+        break;
+      case 'blindExit':
+        blindExitRef.current?.focus();
+        break;
     }
   };
 
@@ -364,14 +380,12 @@ export default function App() {
       }
       if (k === 't') {
         e.preventDefault();
-        const next = !cfg.tts;
-        updateCfg({ tts: next });
-        say(next ? '浏览器语音已打开。' : '浏览器语音已关闭，只通过读屏软件朗读。', next);
+        applyTts(!cfg.tts);
       }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [cfg.asked, cfg.tts, tourRunning, blind, abortTour, toggleBlind, switchTo, updateCfg]);
+  }, [cfg.asked, cfg.tts, tourRunning, blind, abortTour, toggleBlind, switchTo, applyTts]);
 
   useEffect(() => {
     if (!tourRunning) return;
@@ -419,6 +433,7 @@ export default function App() {
       {!cfg.asked && (
         <FirstRunDialog
           onChoose={(sr) => {
+            ttsRef.current = !sr;
             updateCfg({ tts: !sr, asked: true });
             say(sr ? '已设置为读屏模式，浏览器语音关闭。' : '已打开浏览器语音。', !sr);
             // 对话框关闭后把焦点交给图表，避免键盘用户从页面顶部重新 Tab
@@ -515,7 +530,7 @@ export default function App() {
           <KeyHelp />
           <SettingsPanel
             tts={cfg.tts}
-            setTts={(v) => updateCfg({ tts: v })}
+            setTts={applyTts}
             speed={cfg.speed}
             setSpeed={(v) => updateCfg({ speed: v })}
             refTone={cfg.refTone}

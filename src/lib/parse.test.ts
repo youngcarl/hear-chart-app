@@ -33,6 +33,13 @@ describe('parseData 分隔符', () => {
     expect(parseData('9月：86\n10月：92').values).toEqual([86, 92]);
   });
 
+  it('分隔符两侧的空格只是排版', () => {
+    const r = parseData('2024 , 86\n2023 ,92');
+    expect(r.labels).toEqual(['2024', '2023']);
+    expect(r.values).toEqual([86, 92]);
+    expect(r.errors).toEqual([]);
+  });
+
   it('只有数字时自动命名', () => {
     const r = parseData('86\n92\n100');
     expect(r.labels).toEqual(['第1项', '第2项', '第3项']);
@@ -54,6 +61,31 @@ describe('parseData 表头', () => {
     expect(r.values).toEqual([86]);
     expect(r.errors[0]).toContain('第 2 行');
   });
+
+  it('表头可以带数字年份', () => {
+    const r = parseData('2024年,销量\n9月,86\n10月,92');
+    expect(r.labels).toEqual(['9月', '10月']);
+    expect(r.values).toEqual([86, 92]);
+    expect(r.errors).toEqual([]);
+  });
+
+  it('首行是非法数值时不当表头，照常报错', () => {
+    const a = parseData('9月,12abc\n10月,20\n11月,30');
+    expect(a.values).toEqual([20, 30]);
+    expect(a.errors[0]).toContain('第 1 行');
+    expect(a.errors[0]).toContain('12abc');
+
+    const b = parseData('9月,Infinity\n10月,20');
+    expect(b.errors[0]).toContain('Infinity');
+
+    const c = parseData('9月,NaN\n10月,20');
+    expect(c.errors[0]).toContain('NaN');
+
+    const d = parseData('2024,\n2025,20\n2026,30');
+    expect(d.errors[0]).toContain('第 1 行');
+    expect(d.errors[0]).toContain('缺少数值');
+    expect(d.values).toEqual([20, 30]);
+  });
 });
 
 describe('parseData 非法输入', () => {
@@ -74,6 +106,23 @@ describe('parseData 非法输入', () => {
     const r = parseData('9月,86\n10月,86元');
     expect(r.values).toEqual([86]);
     expect(r.errors.some((e) => e.includes('86元'))).toBe(true);
+  });
+
+  it('尾随逗号或 Tab 的缺值按原始行号报错，不伪造数据点', () => {
+    const a = parseData('2024,\n2025,20\n2026,30');
+    expect(a.labels).toEqual(['2025', '2026']);
+    expect(a.values).toEqual([20, 30]);
+    expect(a.errors).toEqual(['第 1 行：“2024,” 末尾的分隔符后缺少数值。']);
+
+    const b = parseData('2024\t\n2025\t20\n2026\t30');
+    expect(b.values).toEqual([20, 30]);
+    expect(b.errors[0]).toBe('第 1 行：“2024” 末尾的分隔符后缺少数值。');
+  });
+
+  it('连续分隔符留下的空字段会被报告', () => {
+    const r = parseData('9月,,86\n10月,20');
+    expect(r.values).toEqual([20]);
+    expect(r.errors[0]).toContain('缺少标签或数值');
   });
 
   it('拒绝 1,2 这类被分隔符拆开的数值', () => {

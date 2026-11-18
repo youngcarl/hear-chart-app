@@ -10,10 +10,26 @@ export function bindLive(el: HTMLElement | null) {
 }
 
 let announceTimer = 0;
+let pendingTimer = 0;
 
 export function stopSpeech() {
   window.clearTimeout(announceTimer);
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+
+/** 延迟朗读（先听音效，再读数值）；只保留最后一个待播任务 */
+export function scheduleSpeech(task: () => void, delay = 220) {
+  window.clearTimeout(pendingTimer);
+  pendingTimer = window.setTimeout(() => {
+    pendingTimer = 0;
+    task();
+  }, delay);
+}
+
+/** 取消尚未执行的延迟朗读（关闭浏览器语音、停止或切图时调用） */
+export function cancelPendingSpeech() {
+  window.clearTimeout(pendingTimer);
+  pendingTimer = 0;
 }
 
 /** 只写 aria-live，保证同一句话重复时读屏也会再读 */
