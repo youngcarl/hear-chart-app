@@ -76,6 +76,13 @@ describe('parseData 表头', () => {
     expect(r.errors).toEqual(['第 1 行：“周一,坏行” 不是有效的数值。']);
   });
 
+  it('显式勾选首行是表头时，任意内容的首行都跳过', () => {
+    const r = parseData('周一,坏行\n9月,86\n10月,92', { header: true });
+    expect(r.labels).toEqual(['9月', '10月']);
+    expect(r.values).toEqual([86, 92]);
+    expect(r.errors).toEqual([]);
+  });
+
   it('明确表头词（中英文、单列）仍可跳过', () => {
     for (const header of ['月份,销量', 'label,value', '销量']) {
       const r = parseData(`${header}\n1月,88\n2月,90`);

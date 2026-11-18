@@ -124,12 +124,13 @@ export function CustomDataForm({ onCreate }: { onCreate: (d: Dataset) => void })
   const [type, setType] = useState<ChartType>('line');
   const [unit, setUnit] = useState('');
   const [text, setText] = useState(DEFAULT_TEXT);
+  const [hasHeader, setHasHeader] = useState(false);
   const [errs, setErrs] = useState<string[]>([]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     // parseData 已经会报告“少于 2 个点”，这里不再重复提示
-    const parsed = parseData(text);
+    const parsed = parseData(text, { header: hasHeader });
     const shown = [...new Set(parsed.errors)];
     if (shown.length > 0) {
       // 同样的错误再次提交时也要重新播报：先清空再写回
@@ -168,6 +169,15 @@ export function CustomDataForm({ onCreate }: { onCreate: (d: Dataset) => void })
         aria-describedby="mErrs"
         onChange={(e) => setText(e.target.value)}
       />
+      <label className="check">
+        <input
+          id="mHasHeader"
+          type="checkbox"
+          checked={hasHeader}
+          onChange={(e) => setHasHeader(e.target.checked)}
+        />
+        首行是表头（跳过第一行）
+      </label>
       <div id="mErrs" className="err" role="alert">
         {errs.map((msg) => (
           <p key={msg}>{msg}</p>

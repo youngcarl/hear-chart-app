@@ -28,6 +28,8 @@ export interface ChartKeyEvent {
   altKey?: boolean;
   /** 输入法组合输入中：方向键等正被用来选字，不能抢 */
   isComposing?: boolean;
+  /** 按住不放产生的自动重复 keydown */
+  repeat?: boolean;
   preventDefault: () => void;
   stopPropagation: () => void;
 }
@@ -40,9 +42,13 @@ export interface ChartKeyContext {
  * 处理图表按键：返回要执行的动作，或 null 表示不拦截。
  * Ctrl / Meta / Alt 组合键和输入法组合状态一律放行（刷新、保存、打印、返回等）。
  */
+const REPEATABLE_KEYS = new Set(['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+
 export function handleChartKey(e: ChartKeyEvent, ctx: ChartKeyContext): ChartAction | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   if (e.isComposing || e.key === 'Process') return null;
+  // 长按空格会不断触发 keydown；只允许方向键等导航键自动重复
+  if (e.repeat && !REPEATABLE_KEYS.has(e.key)) return null;
 
   let action: ChartAction | null = null;
   switch (e.key) {

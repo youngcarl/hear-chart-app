@@ -286,6 +286,16 @@ export default function App() {
     })();
   }, [cfg.tts, focusChart, playDataset, stopAudio, updateCfg]);
 
+  /** 导览中再次点击按钮：静默结束当前导览并立刻从头开始 */
+  const restartTour = useCallback(() => {
+    tourRef.current?.abort();
+    tourRef.current = null;
+    setTourRunning(false);
+    stopAudio();
+    setBlind(false);
+    startTour();
+  }, [startTour, stopAudio]);
+
   const addCustom = useCallback(
     (d: Dataset) => {
       stopAudio();
@@ -320,6 +330,7 @@ export default function App() {
         metaKey: e.metaKey,
         altKey: e.altKey,
         isComposing: e.nativeEvent.isComposing || e.keyCode === 229,
+        repeat: e.repeat,
         preventDefault: () => e.preventDefault(),
         stopPropagation: () => e.stopPropagation(),
       },
@@ -420,10 +431,13 @@ export default function App() {
   useEffect(() => {
     if (!tourRunning) return;
     const stop = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      // 点导览按钮本身交给 click 处理（重启），不要在这里先中断
+      if (target?.closest?.('.tour-btn')) return;
       e.stopPropagation();
       abortTour();
     };
-    document.addEventListener('pointerdown', stop, { capture: true, once: true });
+    document.addEventListener('pointerdown', stop, { capture: true });
     return () => document.removeEventListener('pointerdown', stop, { capture: true });
   }, [tourRunning, abortTour]);
 
@@ -478,8 +492,12 @@ export default function App() {
           给视障和低视力同学的图表阅读器：用方向键逐点“听”数据，音高代表数值，左右声道代表先后。请先打开声音或戴上耳机。
         </p>
         <div className="ctrl">
-          <button type="button" className="go" onClick={startTour}>
-            {tourRunning ? '体验中…按任意键停止' : '▶ 30 秒体验'}
+          <button
+            type="button"
+            className="go tour-btn"
+            onClick={() => (tourRunning ? restartTour() : startTour())}
+          >
+            {tourRunning ? '体验中…按任意键停止，点击可重开' : '▶ 30 秒体验'}
           </button>
         </div>
       </header>

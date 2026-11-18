@@ -71,6 +71,19 @@ describe('handleChartKey 裸键', () => {
     expect(r.prevented).toBe(false);
   });
 
+  it('长按空格不会反复切换播放状态', () => {
+    const r = press(' ', { repeat: true });
+    expect(r.action).toBeNull();
+    expect(r.prevented).toBe(false);
+    expect(press('s', { repeat: true }).action).toBeNull();
+  });
+
+  it('长按方向键仍可连续导航', () => {
+    const r = press('ArrowRight', { repeat: true });
+    expect(r.action).toBe('next');
+    expect(r.prevented).toBe(true);
+  });
+
   it('B、T、1–4 只在图表焦点内映射', () => {
     expect(press('b').action).toBe('blindToggle');
     expect(press('T').action).toBe('ttsToggle');

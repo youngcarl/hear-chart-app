@@ -10,7 +10,8 @@
  *     保留空字段并按原始行号报错，不生成伪造的数据点。
  *   - 至少三段、且倒数第二段也是数字（如“9月,1,2”）时视为非法，避免把拆开的数值读错；
  *     两段的“2024,86”“1,86”仍按“标签,数值”正常读取。
- *   - 只有第一个非空行以明确的表头词结尾（如“月份,销量”“label,value”“销量”）时才跳过；
+ *   - 表单可显式勾选“首行是表头”，此时无条件跳过第一个非空行；
+ *     未勾选时只跳过末列为明确表头词的行（如“月份,销量”“label,value”“销量”），
  *     不再凭“没有数字的文字”猜表头，“周一,坏行”这类首行缺测会正常报错。
  *   - 其他无法识别的行记进 errors，并带上原始行号。
  *   - 最多取 200 个有效点，超出后停止读取。
@@ -20,6 +21,11 @@ export interface ParseResult {
   labels: string[];
   values: number[];
   errors: string[];
+}
+
+export interface ParseOptions {
+  /** 用户显式声明首行是表头：无条件跳过第一个非空行 */
+  header?: boolean;
 }
 
 /** 单个图表最多支持的数据点数量 */
@@ -41,7 +47,7 @@ const HEADER_WORDS = new Set([
 
 const isHeaderWord = (s: string) => HEADER_WORDS.has(s.trim().toLowerCase());
 
-export function parseData(text: string): ParseResult {
+export function parseData(text: string, opts: ParseOptions = {}): ParseResult {
   const labels: string[] = [];
   const values: number[] = [];
   const errors: string[] = [];
@@ -70,7 +76,8 @@ export function parseData(text: string): ParseResult {
 
     if (!started) {
       started = true;
-      // 只跳过明确的表头：末列是常见表头词、最多两列、且没有空字段
+      // 用户勾选“首行是表头”时无条件跳过；否则只跳过末列是常见表头词的行
+      if (opts.header) continue;
       if (!hasEmpty && parts.length <= 2 && isHeaderWord(last)) continue;
     }
 
