@@ -128,7 +128,7 @@ export function CustomDataForm({ onCreate }: { onCreate: (d: Dataset) => void })
     e.preventDefault();
     // parseData 已经会报告“少于 2 个点”，这里不再重复提示
     const parsed = parseData(text);
-    const shown = [...new Set(parsed.errors)].slice(0, 3);
+    const shown = [...new Set(parsed.errors)];
     if (shown.length > 0) {
       // 同样的错误再次提交时也要重新播报：先清空再写回
       setErrs([]);
