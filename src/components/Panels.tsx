@@ -32,15 +32,16 @@ export function DataTable({ ds, idx }: { ds: Dataset; idx: number }) {
 }
 
 const KEYS: [string[], string][] = [
-  [['←', '→'], '逐点收听（图表内）'],
+  [['←', '→'], '逐点收听'],
   [['↑', '↓'], '最高 / 最低'],
   [['Home', 'End'], '首尾'],
-  [['空格'], '播放 / 停止'],
+  [['空格'], '播放 / 暂停 / 继续'],
+  [['Esc'], '停止播放；闭眼模式内退出'],
   [['S'], '总结'],
   [['R'], '重读当前点'],
   [['P'], '最低音 / 最高音'],
   [['T'], '浏览器语音开关'],
-  [['B', 'Esc'], '闭眼模式及退出'],
+  [['B'], '闭眼模式'],
   [['1–4'], '切换图表'],
   [['H'], '帮助'],
 ];
@@ -49,6 +50,7 @@ export function KeyHelp() {
   return (
     <div className="box">
       <h2>快捷键</h2>
+      <p className="hint">先点一下图表，或用 Tab 把焦点移进图表，下面的键才生效；焦点在输入框或其他按钮上时不会误触。闭眼模式下 Esc 在任意位置都能退出。</p>
       <ul className="keys">
         {KEYS.map(([ks, desc]) => (
           <li key={desc}>
@@ -128,7 +130,7 @@ export function CustomDataForm({ onCreate }: { onCreate: (d: Dataset) => void })
     e.preventDefault();
     // parseData 已经会报告“少于 2 个点”，这里不再重复提示
     const parsed = parseData(text);
-    const shown = [...new Set(parsed.errors)].slice(0, 3);
+    const shown = [...new Set(parsed.errors)];
     if (shown.length > 0) {
       // 同样的错误再次提交时也要重新播报：先清空再写回
       setErrs([]);

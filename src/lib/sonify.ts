@@ -4,6 +4,12 @@ import type { ChartType } from './types';
 export const LOW_HZ = 220;
 export const OCTAVES = 2;
 
+/** 参考音阶段：最低音 0.4s，0.7s 后最高音 0.4s，再留一点空隙 */
+export const REF_LEAD = 1.2;
+
+/** 播放时钟的轮询间隔（毫秒） */
+const TICK_MS = 60;
+
 /** 按音程（对数）映射，人耳听起来音高变化是均匀的 */
 export function pitchOf(v: number, min: number, max: number): number {
   const t = max === min ? 0.5 : (v - min) / (max - min);
@@ -16,15 +22,47 @@ export const panOf = (i: number, n: number) => (n < 2 ? 0 : (i / (n - 1)) * 2 - 
 /** 非有限值按 0 处理，避免传给 AudioParam 抛错 */
 const safe = (v: number) => (Number.isFinite(v) ? v : 0);
 
+/** 下标取整并夹在 [0, n-1]，空数据返回 -1 */
+function clampIndex(i: number, n: number): number {
+  if (!Number.isFinite(i) || n < 1) return -1;
+  return Math.max(0, Math.min(Math.floor(i), n - 1));
+}
+
+/** 播放时钟 → 当前数据点下标；参考音阶段（elapsed < 0）停在起点 */
+export function pointIndexAt(elapsed: number, startIndex: number, step: number, n: number): number {
+  const start = clampIndex(startIndex, n);
+  if (start < 0) return -1;
+  if (!Number.isFinite(elapsed) || elapsed < 0 || !(step > 0)) return start;
+  return clampIndex(start + Math.floor(elapsed / step), n);
+}
+
 type AudioCtor = typeof AudioContext;
 
-/** 负责全部发声；与 React 无关，方便单独测试或移植 */
+interface Series {
+  step: number;
+  startIndex: number;
+  n: number;
+  /** 整条第一个音在 AudioContext 时间轴上的绝对位置（参考音之后） */
+  t0: number;
+  /** 最后一个音/提示音结束的绝对时间 */
+  endAt: number;
+  onStep: (i: number) => void;
+  onEnd?: () => void;
+  /** 最近一次报给界面的进度，-1 表示还没报过 */
+  last: number;
+  timer: number;
+}
+
+/**
+ * 负责全部发声；与 React 无关，方便单独测试或移植。
+ * 整条播放按 AudioContext 的绝对时间排布，高亮由同一个时钟轮询得出：
+ * 暂停时冻结时钟，声音和高亮一起停在当前进度；续播从原位置继续。
+ */
 export class Sonifier {
   private ac: AudioContext | null = null;
   private oscs: OscillatorNode[] = [];
-  private timers: number[] = [];
-  /** 每次 stop/重新播放递增，旧定时器即使漏清也不会回调 */
-  private gen = 0;
+  private series: Series | null = null;
+  private frozen = false;
 
   private ctx(): AudioContext {
     if (!this.ac) {
@@ -33,7 +71,7 @@ export class Sonifier {
       if (!C) throw new Error('当前浏览器不支持 Web Audio');
       this.ac = new C();
     }
-    if (this.ac.state === 'suspended') void this.ac.resume();
+    if (this.ac.state === 'suspended' && !this.frozen) void this.ac.resume();
     return this.ac;
   }
 
@@ -92,16 +130,20 @@ export class Sonifier {
     this.tone(f, panOf(i, vals.length), a.currentTime + 0.01, 0.22, type === 'bar' ? 'triangle' : 'sine');
   }
 
+  /** 排好两个参考音，返回整条应该开始的时间 */
+  private scheduleReference(mn: number, mx: number, at: number): number {
+    this.tone(pitchOf(mn, mn, mx), 0, at, 0.4, 'sine');
+    this.tone(pitchOf(mx, mn, mx), 0, at + 0.7, 0.4, 'sine');
+    return at + REF_LEAD;
+  }
+
   /** 先播最低值，再播最高值，帮助建立“音高 → 数值”的参照 */
   playReference(values: number[]) {
     this.stop();
-    const a = this.ctx();
     const vals = values.map(safe);
-    const mn = Math.min(...vals);
-    const mx = Math.max(...vals);
-    const t0 = a.currentTime + 0.03;
-    this.tone(pitchOf(mn, mn, mx), 0, t0, 0.4, 'sine');
-    this.tone(pitchOf(mx, mn, mx), 0, t0 + 0.7, 0.4, 'sine');
+    if (!vals.length) return;
+    const a = this.ctx();
+    this.scheduleReference(Math.min(...vals), Math.max(...vals), a.currentTime + 0.03);
   }
 
   /** 到头/到尾的提示音 */
@@ -113,8 +155,8 @@ export class Sonifier {
 
   /**
    * 播放整条数据。折线图是一条连续滑动的音，柱状图是一串分开的音。
-   * onStep 在播到第 i 个点时调用（用来同步高亮），onEnd 在整条播完后调用。
-   * startIndex 用于从当前点继续播放。
+   * onStep 在时钟走到第 i 个点时调用（用来同步高亮），onEnd 在整条播完后调用。
+   * startIndex 用于从中间继续，refTone 为真时先播最低音和最高音。
    */
   playSeries(
     values: number[],
@@ -123,18 +165,19 @@ export class Sonifier {
     onStep: (i: number) => void,
     onEnd?: () => void,
     startIndex = 0,
+    refTone = false,
   ) {
     this.stop();
     const n = values.length;
     if (!n) return;
     const vals = values.map(safe);
     const a = this.ctx();
-    const gen = this.gen;
-    const start = Math.max(0, Math.min(startIndex, n - 1));
+    const start = clampIndex(startIndex, n);
     const count = n - start;
     const mn = Math.min(...vals);
     const mx = Math.max(...vals);
-    const t0 = a.currentTime + 0.05;
+    const first = a.currentTime + 0.05;
+    const t0 = refTone ? this.scheduleReference(mn, mx, first) : first;
     let end = t0;
 
     if (type === 'line' && count > 1) {
@@ -188,28 +231,82 @@ export class Sonifier {
       }
     }
 
-    for (let i = start; i < n; i++) {
-      this.timers.push(
-        window.setTimeout(() => {
-          if (gen === this.gen) onStep(i);
-        }, ((i - start) * step + 0.05) * 1000),
-      );
-    }
-    if (onEnd) {
+    const s: Series = {
+      step,
+      startIndex: start,
+      n,
+      t0,
       // 等最后一个振荡器（含极值 / 过零提示音）真正结束再报告完成
-      const delay = Math.max(0, (end - a.currentTime + 0.05) * 1000);
-      this.timers.push(
-        window.setTimeout(() => {
-          if (gen === this.gen) onEnd();
-        }, delay),
-      );
-    }
+      endAt: end + 0.05,
+      onStep,
+      onEnd,
+      last: -1,
+      timer: 0,
+    };
+    this.series = s;
+    s.timer = window.setInterval(() => this.tick(), TICK_MS);
   }
 
+  /** 按 AudioContext 时钟推进高亮并判断自然结束 */
+  private tick() {
+    const s = this.series;
+    const a = this.ac;
+    if (!s || !a) return;
+    const elapsed = a.currentTime - s.t0;
+    if (elapsed >= 0) {
+      const i = pointIndexAt(elapsed, s.startIndex, s.step, s.n);
+      if (i >= 0 && i !== s.last) {
+        s.last = i;
+        s.onStep(i);
+      }
+    }
+    if (a.currentTime >= s.endAt - 1e-6) this.finish();
+  }
+
+  private finish() {
+    const s = this.series;
+    if (!s) return;
+    this.series = null;
+    window.clearInterval(s.timer);
+    // 声音已按绝对时间结束，这里只清引用
+    this.oscs = [];
+    s.onEnd?.();
+  }
+
+  /**
+   * 暂停：冻结 AudioContext 时钟，声音和高亮一起停在当前进度。
+   * 返回当前进度，inReference 表示还停在参考音阶段；没有可暂停的播放时返回 null。
+   */
+  pause(): { index: number; inReference: boolean } | null {
+    const s = this.series;
+    const a = this.ac;
+    if (!s || !a || this.frozen) return null;
+    window.clearInterval(s.timer);
+    s.timer = 0;
+    const elapsed = a.currentTime - s.t0;
+    this.frozen = true;
+    void a.suspend();
+    return {
+      index: pointIndexAt(elapsed, s.startIndex, s.step, s.n),
+      inReference: elapsed < 0,
+    };
+  }
+
+  /** 续播：解冻时钟，从暂停处继续，已排好的声音不重排 */
+  resume() {
+    const s = this.series;
+    const a = this.ac;
+    if (!s || !a || !this.frozen) return;
+    this.frozen = false;
+    void a.resume();
+    s.timer = window.setInterval(() => this.tick(), TICK_MS);
+  }
+
+  /** 停止：作废整条播放与暂停状态，解冻时钟，立即掐掉正在发的声音 */
   stop() {
-    this.gen += 1;
-    this.timers.forEach((t) => window.clearTimeout(t));
-    this.timers = [];
+    const s = this.series;
+    if (s?.timer) window.clearInterval(s.timer);
+    this.series = null;
     this.oscs.forEach((o) => {
       try {
         o.stop();
@@ -218,5 +315,9 @@ export class Sonifier {
       }
     });
     this.oscs = [];
+    if (this.frozen) {
+      this.frozen = false;
+      if (this.ac) void this.ac.resume();
+    }
   }
 }

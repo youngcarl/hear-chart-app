@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { handleChartKey, type ChartKeyEvent } from './keys';
+import { handleChartKey, handleGlobalKey, type ChartKeyEvent } from './keys';
 
 function press(key: string, mods: Partial<ChartKeyEvent> = {}, blind = false) {
   let prevented = false;
@@ -71,11 +71,60 @@ describe('handleChartKey 裸键', () => {
     expect(r.prevented).toBe(false);
   });
 
+  it('B、T、1–4 只在图表焦点内映射', () => {
+    expect(press('b').action).toBe('blindToggle');
+    expect(press('T').action).toBe('ttsToggle');
+    expect(press('1').action).toBe('switch1');
+    expect(press('4').action).toBe('switch4');
+    expect(press('5').action).toBeNull();
+  });
+
   it('Tab 只在闭眼模式下拦截并交给退出按钮', () => {
     const blind = press('Tab', {}, true);
     expect(blind.action).toBe('blindExit');
     expect(blind.prevented).toBe(true);
     expect(press('Tab').action).toBeNull();
     expect(press('Tab', { ctrlKey: true }, true).action).toBeNull();
+  });
+});
+
+describe('handleGlobalKey 全局范围', () => {
+  const run = (
+    key: string,
+    ctx: Partial<{ asked: boolean; tourRunning: boolean; blind: boolean; typing: boolean }> = {},
+  ) => {
+    let prevented = false;
+    const action = handleGlobalKey(
+      {
+        key,
+        preventDefault: () => {
+          prevented = true;
+        },
+      },
+      { asked: true, tourRunning: false, blind: false, typing: false, ...ctx },
+    );
+    return { action, prevented };
+  };
+
+  it('普通按钮/空白处按 B、T、1–4、方向键、S 不触发任何图表动作', () => {
+    for (const key of ['b', 't', '1', '4', 'ArrowRight', 's', ' ']) {
+      const r = run(key);
+      expect(r.action, key).toBeNull();
+      expect(r.prevented, key).toBe(false);
+    }
+  });
+
+  it('导览中任意键取消导览', () => {
+    expect(run('q', { tourRunning: true })).toEqual({ action: 'abortTour', prevented: true });
+  });
+
+  it('闭眼模式下 Esc 退出，普通输入框里 Esc 不抢', () => {
+    expect(run('Escape', { blind: true }).action).toBe('exitBlind');
+    expect(run('Escape', { blind: true, typing: true }).action).toBeNull();
+    expect(run('Escape', { blind: false }).action).toBeNull();
+  });
+
+  it('首次运行对话框未选择前不响应全局按键', () => {
+    expect(run('q', { asked: false, tourRunning: true }).action).toBeNull();
   });
 });

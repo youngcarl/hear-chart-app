@@ -13,7 +13,13 @@ export type ChartAction =
   | 'reread'
   | 'reference'
   | 'help'
-  | 'blindExit';
+  | 'blindExit'
+  | 'blindToggle'
+  | 'ttsToggle'
+  | 'switch1'
+  | 'switch2'
+  | 'switch3'
+  | 'switch4';
 
 export interface ChartKeyEvent {
   key: string;
@@ -73,6 +79,9 @@ export function handleChartKey(e: ChartKeyEvent, ctx: ChartKeyContext): ChartAct
       else if (k === 'r') action = 'reread';
       else if (k === 'p') action = 'reference';
       else if (k === 'h') action = 'help';
+      else if (k === 'b') action = 'blindToggle';
+      else if (k === 't') action = 'ttsToggle';
+      else if (/^[1-4]$/.test(k)) action = `switch${k}` as ChartAction;
     }
   }
 
@@ -81,4 +90,39 @@ export function handleChartKey(e: ChartKeyEvent, ctx: ChartKeyContext): ChartAct
     e.stopPropagation();
   }
   return action;
+}
+
+export type GlobalAction = 'abortTour' | 'exitBlind' | null;
+
+export interface GlobalKeyEvent {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+  isComposing?: boolean;
+  preventDefault: () => void;
+}
+
+export interface GlobalKeyContext {
+  asked: boolean;
+  tourRunning: boolean;
+  blind: boolean;
+  /** 焦点在输入框、文本框或选择框内 */
+  typing: boolean;
+}
+
+/**
+ * 文档级只保留两类按键：导览中任意键取消、闭眼模式下 Esc 退出。
+ * B、T、1–4 等图表快捷键必须等焦点进入图表后才由 handleChartKey 处理，
+ * 避免焦点在普通按钮时误触。
+ */
+export function handleGlobalKey(e: GlobalKeyEvent, ctx: GlobalKeyContext): GlobalAction {
+  if (!ctx.asked) return null;
+  if (ctx.tourRunning) {
+    e.preventDefault();
+    return 'abortTour';
+  }
+  if (ctx.typing) return null;
+  if (ctx.blind && e.key === 'Escape') return 'exitBlind';
+  return null;
 }

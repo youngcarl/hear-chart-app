@@ -69,6 +69,22 @@ describe('parseData 表头', () => {
     expect(r.errors).toEqual([]);
   });
 
+  it('首行缺测/坏值不再当表头：周一,坏行 报第 1 行', () => {
+    const r = parseData('周一,坏行\n周二,14\n周三,15');
+    expect(r.labels).toEqual(['周二', '周三']);
+    expect(r.values).toEqual([14, 15]);
+    expect(r.errors).toEqual(['第 1 行：“周一,坏行” 不是有效的数值。']);
+  });
+
+  it('明确表头词（中英文、单列）仍可跳过', () => {
+    for (const header of ['月份,销量', 'label,value', '销量']) {
+      const r = parseData(`${header}\n1月,88\n2月,90`);
+      expect(r.labels).toEqual(['1月', '2月']);
+      expect(r.values).toEqual([88, 90]);
+      expect(r.errors).toEqual([]);
+    }
+  });
+
   it('首行是非法数值时不当表头，照常报错', () => {
     const a = parseData('9月,12abc\n10月,20\n11月,30');
     expect(a.values).toEqual([20, 30]);

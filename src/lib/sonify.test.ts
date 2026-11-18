@@ -88,10 +88,31 @@ class FakePanner {
 let oscillators: FakeOsc[] = [];
 
 class FakeAudioContext {
-  currentTime = 0;
-  state = 'running';
+  state: 'running' | 'suspended' = 'running';
   destination = {};
-  resume = vi.fn();
+  private startedAt = Date.now();
+  private frozenAt = 0;
+  private suspended = false;
+
+  /** 与假定时器同步推进，方便测试暂停/续播 */
+  get currentTime() {
+    return this.suspended ? this.frozenAt : (Date.now() - this.startedAt) / 1000;
+  }
+
+  suspend = vi.fn(() => {
+    this.frozenAt = this.currentTime;
+    this.suspended = true;
+    this.state = 'suspended';
+    return Promise.resolve();
+  });
+
+  resume = vi.fn(() => {
+    this.startedAt = Date.now() - this.frozenAt * 1000;
+    this.suspended = false;
+    this.state = 'running';
+    return Promise.resolve();
+  });
+
   createOscillator() {
     const o = new FakeOsc();
     oscillators.push(o);
@@ -112,6 +133,8 @@ beforeEach(() => {
     AudioContext: FakeAudioContext,
     setTimeout: globalThis.setTimeout,
     clearTimeout: globalThis.clearTimeout,
+    setInterval: globalThis.setInterval,
+    clearInterval: globalThis.clearInterval,
   });
 });
 
@@ -152,7 +175,7 @@ describe('playSeries 完成时机', () => {
 
     vi.advanceTimersByTime(470);
     expect(onEnd).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(60);
+    vi.advanceTimersByTime(80);
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
@@ -181,5 +204,56 @@ describe('playSeries 完成时机', () => {
     vi.advanceTimersByTime(5000);
     expect(oldEnd).not.toHaveBeenCalled();
     expect(newEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('playSeries 暂停与续播', () => {
+  it('暂停冻结进度，续播从暂停处继续且不从头重放', () => {
+    const s = new Sonifier();
+    const onStep = vi.fn();
+    const onEnd = vi.fn();
+    s.playSeries([10, 20, 30, 40], 'bar', 0.5, onStep, onEnd);
+
+    vi.advanceTimersByTime(1100);
+    expect(onStep.mock.calls.map((c) => c[0])).toEqual([0, 1, 2]);
+
+    const paused = s.pause();
+    expect(paused).toEqual({ index: 2, inReference: false });
+
+    vi.advanceTimersByTime(2000);
+    expect(onStep.mock.calls).toHaveLength(3);
+    expect(onEnd).not.toHaveBeenCalled();
+
+    s.resume();
+    vi.advanceTimersByTime(1000);
+    expect(onStep.mock.calls.map((c) => c[0])).toEqual([0, 1, 2, 3]);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('参考音阶段暂停后，续播仍先走完参考音', () => {
+    const s = new Sonifier();
+    const onStep = vi.fn();
+    const onEnd = vi.fn();
+    s.playSeries([10, 20, 30], 'bar', 0.5, onStep, onEnd, 0, true);
+
+    vi.advanceTimersByTime(300);
+    expect(s.pause()).toEqual({ index: 0, inReference: true });
+    expect(onStep).not.toHaveBeenCalled();
+
+    s.resume();
+    vi.advanceTimersByTime(2600);
+    expect(onStep.mock.calls[0][0]).toBe(0);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('暂停状态下停止，不再恢复时钟也不再回调', () => {
+    const s = new Sonifier();
+    const onEnd = vi.fn();
+    s.playSeries([10, 20, 30], 'bar', 0.5, vi.fn(), onEnd);
+    vi.advanceTimersByTime(300);
+    s.pause();
+    s.stop();
+    vi.advanceTimersByTime(3000);
+    expect(onEnd).not.toHaveBeenCalled();
   });
 });
