@@ -32,7 +32,7 @@ export function DataTable({ ds, idx }: { ds: Dataset; idx: number }) {
 }
 
 const KEYS: [string[], string][] = [
-  [['←', '→'], '逐点收听（图表内）'],
+  [['←', '→'], '逐点收听'],
   [['↑', '↓'], '最高 / 最低'],
   [['Home', 'End'], '首尾'],
   [['空格'], '播放 / 停止'],
@@ -49,6 +49,7 @@ export function KeyHelp() {
   return (
     <div className="box">
       <h2>快捷键</h2>
+      <p className="hint">先点一下图表，或用 Tab 键把焦点移进图表，下面的键才生效；焦点在输入框或其他按钮上时不会触发。闭眼模式下 Esc 在任意位置都能退出。</p>
       <ul className="keys">
         {KEYS.map(([ks, desc]) => (
           <li key={desc}>

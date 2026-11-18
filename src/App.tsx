@@ -269,6 +269,8 @@ export default function App() {
 
   const onChartKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (tourRunning) return;
+    // Ctrl/Alt/Meta 组合键留给浏览器和读屏软件，例如 Alt+Tab 切换窗口
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
     const key = e.key;
     if (key === 'Tab' && blind) {
       // 闭眼模式只有“退出闭眼模式”一个可见控件，Tab 直接送过去
@@ -326,6 +328,16 @@ export default function App() {
             stopAudio();
             speak(HELP);
           };
+        } else if (k === 'b') {
+          action = () => toggleBlind(!blind);
+        } else if (k === 't') {
+          action = () => {
+            const next = !cfg.tts;
+            updateCfg({ tts: next });
+            say(next ? '浏览器语音已打开。' : '浏览器语音已关闭，只通过读屏软件朗读。', next);
+          };
+        } else if (/^[1-4]$/.test(k)) {
+          action = () => switchTo(Number(k) - 1);
         }
       }
     }
@@ -344,34 +356,12 @@ export default function App() {
         abortTour();
         return;
       }
-      if (e.key === 'Escape') {
-        if (blind) toggleBlind(false);
-        return;
-      }
-      const el = e.target as HTMLElement | null;
-      const typing = !!el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable);
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === 'b') {
-        e.preventDefault();
-        toggleBlind(!blind);
-        return;
-      }
-      if (/^[1-4]$/.test(k)) {
-        e.preventDefault();
-        switchTo(Number(k) - 1);
-        return;
-      }
-      if (k === 't') {
-        e.preventDefault();
-        const next = !cfg.tts;
-        updateCfg({ tts: next });
-        say(next ? '浏览器语音已打开。' : '浏览器语音已关闭，只通过读屏软件朗读。', next);
-      }
+      // 其余快捷键都只在图表容器内生效；Esc 保留全局，闭眼模式下焦点可能在退出按钮上
+      if (e.key === 'Escape' && blind) toggleBlind(false);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [cfg.asked, cfg.tts, tourRunning, blind, abortTour, toggleBlind, switchTo, updateCfg]);
+  }, [cfg.asked, tourRunning, blind, abortTour, toggleBlind]);
 
   useEffect(() => {
     if (!tourRunning) return;
