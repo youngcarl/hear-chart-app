@@ -39,7 +39,7 @@ export interface ChartKeyContext {
 }
 
 /**
- * 处理图表按键：返回要执行的动作，或 null 表示不拦截。
+ * 返回要执行的动作；重复空格只阻止默认行为，不返回动作。
  * Ctrl / Meta / Alt 组合键和输入法组合状态一律放行（刷新、保存、打印、返回等）。
  */
 const REPEATABLE_KEYS = new Set(['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
@@ -47,7 +47,11 @@ const REPEATABLE_KEYS = new Set(['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDow
 export function handleChartKey(e: ChartKeyEvent, ctx: ChartKeyContext): ChartAction | null {
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   if (e.isComposing || e.key === 'Process') return null;
-  // 长按空格会不断触发 keydown；只允许方向键等导航键自动重复
+  if (e.repeat && e.key === ' ') {
+    e.preventDefault();
+    e.stopPropagation();
+    return null;
+  }
   if (e.repeat && !REPEATABLE_KEYS.has(e.key)) return null;
 
   let action: ChartAction | null = null;

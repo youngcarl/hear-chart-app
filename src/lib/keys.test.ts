@@ -71,10 +71,11 @@ describe('handleChartKey 裸键', () => {
     expect(r.prevented).toBe(false);
   });
 
-  it('长按空格不会反复切换播放状态', () => {
+  it('长按空格阻止默认滚动，但不会反复切换播放状态', () => {
     const r = press(' ', { repeat: true });
     expect(r.action).toBeNull();
-    expect(r.prevented).toBe(false);
+    expect(r.prevented).toBe(true);
+    expect(r.stopped).toBe(true);
     expect(press('s', { repeat: true }).action).toBeNull();
   });
 

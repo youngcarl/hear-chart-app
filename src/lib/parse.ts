@@ -11,8 +11,7 @@
  *   - 至少三段、且倒数第二段也是数字（如“9月,1,2”）时视为非法，避免把拆开的数值读错；
  *     两段的“2024,86”“1,86”仍按“标签,数值”正常读取。
  *   - 表单可显式勾选“首行是表头”，此时无条件跳过第一个非空行；
- *     未勾选时只跳过末列为明确表头词的行（如“月份,销量”“label,value”“销量”），
- *     不再凭“没有数字的文字”猜表头，“周一,坏行”这类首行缺测会正常报错。
+ *     未勾选时首行和其他行一样校验，绝不自动猜表头。
  *   - 其他无法识别的行记进 errors，并带上原始行号。
  *   - 最多取 200 个有效点，超出后停止读取。
  */
@@ -37,16 +36,6 @@ const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 /** 去掉首尾普通空格，但保留 Tab、逗号等分隔符，便于发现尾随分隔符造成的缺值 */
 const stripEdgeSpaces = (s: string) => s.replace(/^[ \u3000]+|[ \u3000]+$/g, '');
 
-/** 明确指示表头的末列词；没在名单里的文字首行一律按坏行报错，避免吞掉缺测数据 */
-const HEADER_WORDS = new Set([
-  '月份', '日期', '时间', '季度', '周次', '年份', '名称', '项目', '类别', '标签',
-  '数值', '值', '销量', '销售额', '数量', '金额', '数据', '指标', '计数', '频次',
-  'label', 'labels', 'name', 'date', 'time', 'quarter', 'week', 'year', 'category',
-  'value', 'values', 'sales', 'amount', 'count', 'total', 'data', 'x', 'y',
-]);
-
-const isHeaderWord = (s: string) => HEADER_WORDS.has(s.trim().toLowerCase());
-
 export function parseData(text: string, opts: ParseOptions = {}): ParseResult {
   const labels: string[] = [];
   const values: number[] = [];
@@ -57,7 +46,7 @@ export function parseData(text: string, opts: ParseOptions = {}): ParseResult {
   }
 
   const lines = text.split(/\r?\n/);
-  let started = false;
+  let headerPending = opts.header === true;
   const isNum = (p: string) => NUM_RE.test(p) && Number.isFinite(Number(p));
 
   for (let i = 0; i < lines.length; i++) {
@@ -74,11 +63,10 @@ export function parseData(text: string, opts: ParseOptions = {}): ParseResult {
     const last = parts[parts.length - 1];
     const hasEmpty = parts.some((p) => !p);
 
-    if (!started) {
-      started = true;
-      // 用户勾选“首行是表头”时无条件跳过；否则只跳过末列是常见表头词的行
-      if (opts.header) continue;
-      if (!hasEmpty && parts.length <= 2 && isHeaderWord(last)) continue;
+    if (headerPending) {
+      // 只有用户显式勾选“首行是表头”才跳过第一个非空行
+      headerPending = false;
+      continue;
     }
 
     if (hasEmpty) {

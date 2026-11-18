@@ -48,11 +48,18 @@ describe('parseData 分隔符', () => {
 });
 
 describe('parseData 表头', () => {
-  it('首个非空行末尾不是数字时当表头跳过，不报错', () => {
-    const r = parseData('月份,销量\n9月,86\n10月,92');
-    expect(r.labels).toEqual(['9月', '10月']);
-    expect(r.values).toEqual([86, 92]);
-    expect(r.errors).toEqual([]);
+  it('未勾选表头时，首行和其他行一样校验：2024,x 报第 1 行', () => {
+    const r = parseData('2024,x\n2025,20\n2026,30');
+    expect(r.labels).toEqual(['2025', '2026']);
+    expect(r.values).toEqual([20, 30]);
+    expect(r.errors[0]).toBe('第 1 行：“2024,x” 不是有效的数值。');
+  });
+
+  it('未勾选表头时，常见表头词也按数据校验', () => {
+    for (const header of ['月份,销量', 'label,value', '销量']) {
+      const r = parseData(`${header}\n1月,88\n2月,90`);
+      expect(r.errors[0], header).toContain('第 1 行');
+    }
   });
 
   it('首行是有效数据时不跳行', () => {
@@ -62,11 +69,29 @@ describe('parseData 表头', () => {
     expect(r.errors[0]).toContain('第 2 行');
   });
 
-  it('表头可以带数字年份', () => {
-    const r = parseData('2024年,销量\n9月,86\n10月,92');
-    expect(r.labels).toEqual(['9月', '10月']);
-    expect(r.values).toEqual([86, 92]);
-    expect(r.errors).toEqual([]);
+  it('显式勾选首行是表头时，任意内容的首行都跳过', () => {
+    for (const header of ['周一,坏行', '2024年,销量', '2024,x']) {
+      const r = parseData(`${header}\n9月,86\n10月,92`, { header: true });
+      expect(r.labels, header).toEqual(['9月', '10月']);
+      expect(r.values, header).toEqual([86, 92]);
+      expect(r.errors, header).toEqual([]);
+    }
+  });
+
+  it('明确表头词（中英文、单列）在勾选后可跳过', () => {
+    for (const header of ['月份,销量', 'label,value', '销量']) {
+      const r = parseData(`${header}\n1月,88\n2月,90`, { header: true });
+      expect(r.labels, header).toEqual(['1月', '2月']);
+      expect(r.values, header).toEqual([88, 90]);
+      expect(r.errors, header).toEqual([]);
+    }
+  });
+
+  it('勾选后只跳过第一个非空行，即使该行是有效数值', () => {
+    const r = parseData('\n2024,10\n2025,20\n2026,x\n2027,30', { header: true });
+    expect(r.labels).toEqual(['2025', '2027']);
+    expect(r.values).toEqual([20, 30]);
+    expect(r.errors).toEqual(['第 4 行：“2026,x” 不是有效的数值。']);
   });
 
   it('首行缺测/坏值不再当表头：周一,坏行 报第 1 行', () => {
@@ -74,22 +99,6 @@ describe('parseData 表头', () => {
     expect(r.labels).toEqual(['周二', '周三']);
     expect(r.values).toEqual([14, 15]);
     expect(r.errors).toEqual(['第 1 行：“周一,坏行” 不是有效的数值。']);
-  });
-
-  it('显式勾选首行是表头时，任意内容的首行都跳过', () => {
-    const r = parseData('周一,坏行\n9月,86\n10月,92', { header: true });
-    expect(r.labels).toEqual(['9月', '10月']);
-    expect(r.values).toEqual([86, 92]);
-    expect(r.errors).toEqual([]);
-  });
-
-  it('明确表头词（中英文、单列）仍可跳过', () => {
-    for (const header of ['月份,销量', 'label,value', '销量']) {
-      const r = parseData(`${header}\n1月,88\n2月,90`);
-      expect(r.labels).toEqual(['1月', '2月']);
-      expect(r.values).toEqual([88, 90]);
-      expect(r.errors).toEqual([]);
-    }
   });
 
   it('首行是非法数值时不当表头，照常报错', () => {
@@ -113,7 +122,7 @@ describe('parseData 表头', () => {
 
 describe('parseData 非法输入', () => {
   it('拒绝 Infinity 和 NaN', () => {
-    const r = parseData('月份,销量\n9月,Infinity\n10月,NaN');
+    const r = parseData('月份,销量\n9月,Infinity\n10月,NaN', { header: true });
     expect(r.values).toEqual([]);
     expect(r.errors.some((e) => e.includes('Infinity'))).toBe(true);
     expect(r.errors.some((e) => e.includes('NaN'))).toBe(true);
@@ -203,7 +212,7 @@ describe('parseData 数字格式', () => {
   });
 
   it('跳过空行，保留正确的行号', () => {
-    const r = parseData('月份,销量\n\n9月,86\n\n10月,92');
+    const r = parseData('月份,销量\n\n9月,86\n\n10月,92', { header: true });
     expect(r.values).toEqual([86, 92]);
     expect(r.errors).toEqual([]);
   });

@@ -286,16 +286,6 @@ export default function App() {
     })();
   }, [cfg.tts, focusChart, playDataset, stopAudio, updateCfg]);
 
-  /** 导览中再次点击按钮：静默结束当前导览并立刻从头开始 */
-  const restartTour = useCallback(() => {
-    tourRef.current?.abort();
-    tourRef.current = null;
-    setTourRunning(false);
-    stopAudio();
-    setBlind(false);
-    startTour();
-  }, [startTour, stopAudio]);
-
   const addCustom = useCallback(
     (d: Dataset) => {
       stopAudio();
@@ -432,7 +422,7 @@ export default function App() {
     if (!tourRunning) return;
     const stop = (e: PointerEvent) => {
       const target = e.target as Element | null;
-      // 点导览按钮本身交给 click 处理（重启），不要在这里先中断
+      // 导览按钮由 click 停止，避免 pointerdown 先停止后又被 click 启动
       if (target?.closest?.('.tour-btn')) return;
       e.stopPropagation();
       abortTour();
@@ -495,9 +485,9 @@ export default function App() {
           <button
             type="button"
             className="go tour-btn"
-            onClick={() => (tourRunning ? restartTour() : startTour())}
+            onClick={() => (tourRunning ? abortTour() : startTour())}
           >
-            {tourRunning ? '体验中…按任意键停止，点击可重开' : '▶ 30 秒体验'}
+            {tourRunning ? '停止体验' : '开始体验'}
           </button>
         </div>
       </header>

@@ -26,39 +26,85 @@ test('显式勾选“首行是表头”会跳过任意首行', async ({ page }) 
   await expect(rows.nth(1)).toContainText('10月');
 });
 
-test('不勾选时首行坏值照常报错，不生成图表', async ({ page }) => {
+test('不勾选时 2024,x 报第 1 行错误，不生成缺行图表', async ({ page }) => {
   await openApp(page);
-  await page.fill('#mData', '周一,坏行\n9月,86\n10月,92');
+  await page.fill('#mData', '2024,x\n2025,20\n2026,30');
+  await expect(page.locator('#mHasHeader')).not.toBeChecked();
   await page.click('form button[type=submit]');
 
   await expect(page.locator('.err p').first()).toContainText('第 1 行');
-  await expect(page.locator('.err p').first()).toContainText('周一,坏行');
+  await expect(page.locator('.err p').first()).toContainText('2024,x');
   await expect(page.locator('.chart')).toHaveAttribute('aria-label', '某城市月平均气温，折线图');
 });
 
-test('导览中再次点击按钮会从头重启，而不是停住', async ({ page }) => {
+for (const activation of ['鼠标点击', '仅 click'] as const) {
+  for (const phase of ['开场', '播放'] as const) {
+    if (phase === '播放' && activation === '鼠标点击') continue;
+    test(`导览${phase}中${activation}停止后回到空闲且不再开场`, async ({ page }) => {
+      await openApp(page);
+      const tour = page.locator('.tour-btn');
+      const live = page.locator('[aria-live="polite"]');
+      await expect(tour).toHaveText('开始体验');
+      await tour.click();
+      await expect(tour).toHaveText('停止体验');
+      await expect(live).toHaveText('接下来请闭上眼睛，用耳朵读一张图。');
+      if (phase === '播放') {
+        await expect(page.locator('.blind.on')).toHaveCount(1);
+      }
+
+      if (activation === '鼠标点击') {
+        await tour.click();
+      } else {
+        await tour.evaluate((el) => (el as HTMLButtonElement).click());
+      }
+
+      await expect(tour).toHaveText('开始体验');
+      await expect(page.locator('.blind.on')).toHaveCount(0);
+      await expect(live).toHaveText('体验已结束，你可以按右方向键自己试。');
+      const intros = await live.evaluate((el) => new Promise<number>((resolve) => {
+        let count = 0;
+        const observer = new MutationObserver(() => {
+          if (el.textContent?.includes('接下来请闭上眼睛')) count++;
+        });
+        observer.observe(el, { childList: true, subtree: true, characterData: true });
+        window.setTimeout(() => {
+          observer.disconnect();
+          resolve(count);
+        }, 3500);
+      }));
+      expect(intros).toBe(0);
+      await expect(tour).toHaveText('开始体验');
+      await expect(page.locator('.blind.on')).toHaveCount(0);
+      await expect(live).toHaveText('体验已结束，你可以按右方向键自己试。');
+      await expect(page.getByRole('button', { name: '停止（Esc）', exact: false })).toBeDisabled();
+    });
+  }
+}
+
+test('图表聚焦时重复空格阻止默认行为且不切换播放，方向键仍可长按', async ({ page }) => {
   await openApp(page);
-  const tour = page.locator('.tour-btn');
-
-  await tour.click();
-  await expect(tour).toContainText('体验中');
-  await page.waitForTimeout(1000);
-
-  // 第二次点击：不应被“点任意位置中断”吞掉，而是重新开始导览
-  await tour.click();
-  await expect(tour).toContainText('体验中');
-
-  // 第一次导览若未被重启，此时（约 3.3 秒）应已进入闭眼模式
-  await page.waitForTimeout(2300);
-  await expect(tour).toContainText('体验中');
-  await expect(page.locator('.blind.on')).toHaveCount(0);
-
-  // 重启后的新导览会走完开场并进入闭眼模式
-  await expect(page.locator('.blind.on')).toHaveCount(1, { timeout: 4000 });
-
-  // 旧实现的“点任意位置中断”监听是 once，第二次点击时已被消耗；
-  // 重启后点击遮罩仍应能中断，否则说明监听没有恢复
-  await page.locator('.blind-tip').click();
-  await expect(tour).toContainText('30 秒体验');
-  await expect(page.locator('.blind.on')).toHaveCount(0);
+  const chart = page.locator('.chart');
+  const playback = page.getByRole('button', { name: '播放整条（空格）', exact: false });
+  await chart.focus();
+  await chart.press('Space');
+  await expect(playback).toHaveCount(0);
+  const pause = page.getByRole('button', { name: '暂停（空格）', exact: false });
+  await expect(pause).toBeVisible();
+  const prevented = await chart.evaluate((el) => {
+    const event = new KeyboardEvent('keydown', {
+      key: ' ', code: 'Space', repeat: true, bubbles: true, cancelable: true,
+    });
+    el.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
+  await expect(pause).toBeVisible();
+  await chart.press('Escape');
+  await expect(playback).toBeVisible();
+  await chart.press('Home');
+  const first = await page.locator('.now').textContent();
+  await chart.evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'ArrowRight', repeat: true, bubbles: true, cancelable: true,
+  })));
+  await expect(page.locator('.now')).not.toHaveText(first!);
 });
