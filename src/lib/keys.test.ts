@@ -132,10 +132,20 @@ describe('handleGlobalKey 全局范围', () => {
     expect(run('q', { tourRunning: true })).toEqual({ action: 'abortTour', prevented: true });
   });
 
-  it('闭眼模式下 Esc 退出，普通输入框里 Esc 不抢', () => {
+  it('闭眼模式下 Esc 退出', () => {
     expect(run('Escape', { blind: true }).action).toBe('exitBlind');
-    expect(run('Escape', { blind: true, typing: true }).action).toBeNull();
     expect(run('Escape', { blind: false }).action).toBeNull();
+  });
+
+  it('闭眼模式下焦点在文本框时 Esc 仍退出', () => {
+    expect(run('Escape', { blind: true, typing: true }).action).toBe('exitBlind');
+  });
+
+  it('未开启闭眼模式时文本框 Esc 不被拦截', () => {
+    expect(run('Escape', { blind: false, typing: true })).toEqual({
+      action: null,
+      prevented: false,
+    });
   });
 
   it('首次运行对话框未选择前不响应全局按键', () => {

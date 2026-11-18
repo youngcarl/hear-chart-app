@@ -132,7 +132,7 @@ export function handleGlobalKey(e: GlobalKeyEvent, ctx: GlobalKeyContext): Globa
     e.preventDefault();
     return 'abortTour';
   }
-  if (ctx.typing) return null;
   if (ctx.blind && e.key === 'Escape') return 'exitBlind';
+  if (ctx.typing) return null;
   return null;
 }
