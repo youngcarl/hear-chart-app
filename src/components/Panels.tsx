@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import type { ChartType, Dataset } from '../lib/types';
 import { fmt } from '../lib/analyze';
 import { parseData } from '../lib/parse';
+import { SPEED_OPTIONS } from '../lib/settings';
 import { EXTRACT_ENABLED } from '../lib/extract';
 
 export function DataTable({ ds, idx }: { ds: Dataset; idx: number }) {
@@ -32,20 +33,24 @@ export function DataTable({ ds, idx }: { ds: Dataset; idx: number }) {
 
 const KEYS: [string[], string][] = [
   [['←', '→'], '逐点收听'],
-  [['↑', '↓'], '跳到最高点 / 最低点'],
-  [['Home', 'End'], '第一个 / 最后一个'],
-  [['空格'], '播放整条'],
-  [['S'], '朗读总结'],
+  [['↑', '↓'], '最高 / 最低'],
+  [['Home', 'End'], '首尾'],
+  [['空格'], '播放 / 暂停 / 继续'],
+  [['Esc'], '停止播放；闭眼模式内退出'],
+  [['S'], '总结'],
   [['R'], '重读当前点'],
-  [['B', 'Esc'], '进入 / 退出闭眼模式'],
-  [['1', '4'], '切换图表'],
-  [['H'], '朗读帮助'],
+  [['P'], '最低音 / 最高音'],
+  [['T'], '浏览器语音开关'],
+  [['B'], '闭眼模式'],
+  [['1–4'], '切换图表'],
+  [['H'], '帮助'],
 ];
 
 export function KeyHelp() {
   return (
     <div className="box">
       <h2>快捷键</h2>
+      <p className="hint">先点一下图表，或用 Tab 把焦点移进图表，下面的键才生效；焦点在输入框或其他按钮上时不会误触。闭眼模式下 Esc 在任意位置都能退出。</p>
       <ul className="keys">
         {KEYS.map(([ks, desc]) => (
           <li key={desc}>
@@ -65,9 +70,11 @@ interface SettingsProps {
   setTts: (v: boolean) => void;
   speed: number;
   setSpeed: (v: number) => void;
+  refTone: boolean;
+  setRefTone: (v: boolean) => void;
 }
 
-export function Settings({ tts, setTts, speed, setSpeed }: SettingsProps) {
+export function SettingsPanel({ tts, setTts, speed, setSpeed, refTone, setRefTone }: SettingsProps) {
   return (
     <div className="box">
       <h2>设置</h2>
@@ -75,12 +82,37 @@ export function Settings({ tts, setTts, speed, setSpeed }: SettingsProps) {
         <input type="checkbox" checked={tts} onChange={(e) => setTts(e.target.checked)} />
         浏览器语音朗读（用读屏软件时请关掉）
       </label>
+      <label className="check">
+        <input type="checkbox" checked={refTone} onChange={(e) => setRefTone(e.target.checked)} />
+        播放前先听最低音和最高音
+      </label>
       <label htmlFor="speed">播放速度</label>
       <select id="speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-        <option value={0.5}>慢</option>
-        <option value={0.32}>中</option>
-        <option value={0.2}>快</option>
+        {SPEED_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
       </select>
+    </div>
+  );
+}
+
+interface BrowseProps {
+  onPrev: () => void;
+  onNext: () => void;
+  disabled?: boolean;
+}
+
+export function BrowseButtons({ onPrev, onNext, disabled = false }: BrowseProps) {
+  return (
+    <div className="browse" role="group" aria-label="逐个浏览数据点">
+      <button type="button" onClick={onPrev} disabled={disabled}>
+        ← 上一个
+      </button>
+      <button type="button" onClick={onNext} disabled={disabled}>
+        下一个 →
+      </button>
     </div>
   );
 }
@@ -92,17 +124,22 @@ export function CustomDataForm({ onCreate }: { onCreate: (d: Dataset) => void })
   const [type, setType] = useState<ChartType>('line');
   const [unit, setUnit] = useState('');
   const [text, setText] = useState(DEFAULT_TEXT);
-  const [err, setErr] = useState('');
+  const [hasHeader, setHasHeader] = useState(false);
+  const [errs, setErrs] = useState<string[]>([]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const { labels, values } = parseData(text);
-    if (values.length < 2) {
-      setErr('至少需要两行有效数据。');
+    // parseData 已经会报告“少于 2 个点”，这里不再重复提示
+    const parsed = parseData(text, { header: hasHeader });
+    const shown = [...new Set(parsed.errors)];
+    if (shown.length > 0) {
+      // 同样的错误再次提交时也要重新播报：先清空再写回
+      setErrs([]);
+      window.setTimeout(() => setErrs(shown), 30);
       return;
     }
-    setErr('');
-    onCreate({ id: 'mine', short: '我的数据', title: title.trim() || '我的数据', type, unit: unit.trim(), labels, values });
+    setErrs([]);
+    onCreate({ id: 'mine', short: '我的数据', title: title.trim() || '我的数据', type, unit: unit.trim(), labels: parsed.labels, values: parsed.values });
   };
 
   return (
@@ -125,9 +162,26 @@ export function CustomDataForm({ onCreate }: { onCreate: (d: Dataset) => void })
         </div>
       </div>
       <label htmlFor="mData">数据</label>
-      <textarea id="mData" value={text} onChange={(e) => setText(e.target.value)} />
-      <div className="err" role="alert">
-        {err}
+      <textarea
+        id="mData"
+        value={text}
+        aria-invalid={errs.length > 0}
+        aria-describedby="mErrs"
+        onChange={(e) => setText(e.target.value)}
+      />
+      <label className="check">
+        <input
+          id="mHasHeader"
+          type="checkbox"
+          checked={hasHeader}
+          onChange={(e) => setHasHeader(e.target.checked)}
+        />
+        首行是表头（跳过第一行）
+      </label>
+      <div id="mErrs" className="err" role="alert">
+        {errs.map((msg) => (
+          <p key={msg}>{msg}</p>
+        ))}
       </div>
       <button className="go wide" type="submit">
         生成可听图表

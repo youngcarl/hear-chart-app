@@ -135,19 +135,21 @@ Qoder 左侧 **Source Control → Changes** 中点击文件即可查看差异；
 ```bash
 git status
 git diff
+npm test
+npm run test:e2e
 npm run build
 ```
 
 每次提交前至少检查：
 
 - [ ] 只修改当前任务需要的内容，没有顺带重写无关模块。
-- [ ] `npm run build` 实际通过。
+- [ ] `npm test`、`npm run test:e2e` 与 `npm run build` 实际通过。
 - [ ] 在 `npm run dev` 页面手动验证本次功能及相邻功能。
 - [ ] 涉及声音、键盘或无障碍时，实际测试相应行为；未测的写明“未执行”。
 - [ ] 没有 API Key、密码、个人资料、`.env`、日志、`node_modules` 或 `dist`。
 - [ ] 有意变更依赖时，核对并一并提交 `package.json` 与 `package-lock.json`；日常安装用 `npm ci`，不随意升级依赖。
 
-目前项目没有 `npm test` 脚本。构建通过只证明类型检查和打包成功，不等于音频、读屏或功能验收通过。
+`npm test` 使用 Vitest 跑纯函数与事件逻辑测试（解析、统计、声音调度、语音取消、快捷键）；`npm run test:e2e` 用 Playwright 驱动本机 Chrome 做表单和导览交互回归（CI 使用 ubuntu-latest 自带的 Chrome）。构建通过只证明类型检查和打包成功，不等于音频、读屏或真实用户验收通过。
 
 ## 4. 保存版本并上传任务分支
 
@@ -200,7 +202,7 @@ git push -u origin fix/xiaoming-data-validation
 是否改变输入规则、依赖或用户交互？
 ```
 
-仓库中的 **Build** 工作流在 PR 和 main 推送时运行；**仅推送普通任务分支但尚未建 PR，不会触发这份工作流。** 在 PR 的检查区域查看结果，失败时打开日志，修复后重新提交。
+仓库中的 **Build** 工作流在 PR、main 推送和 `feat/**` 分支推送时运行，依次执行 `npm ci`、`npm test`、`npm run build`、`npm run test:e2e`（Playwright + 系统 Chrome）。其他命名的任务分支在创建 PR 后也会触发。在 PR 的检查区域查看结果，失败时打开日志，修复后重新提交。
 
 维护者检查差异、构建结果和必要的功能测试，再合并。这里不会自动完成网站部署；部署需另外安排。
 

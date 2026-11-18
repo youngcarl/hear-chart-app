@@ -26,6 +26,16 @@ header { padding: 28px max(5vw, 16px) 8px; border-top: 10px solid var(--yel); }
 h1 { margin: 0; font-size: clamp(30px, 4vw, 44px); line-height: 1.05; }
 .lead { margin: 8px 0 0; color: var(--muted); max-width: 60ch; }
 
+/* 顶部提示条：用盲道黄提醒，不用红色制造紧张 */
+.banner {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 10px 16px;
+  background: light-dark(#fff6c9, #3b3410);
+  color: light-dark(#121212, #ffe98a);
+  border-bottom: 3px solid var(--yel);
+  font-size: 15px; font-weight: 600; line-height: 1.4; text-align: center;
+}
+
 main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 330px;
@@ -55,7 +65,13 @@ button.wide { width: 100%; }
 .chart { margin: 14px 0 0; border: 1.5px solid var(--line); border-radius: 14px; padding: 10px; cursor: pointer; }
 .chart:focus-visible { outline-offset: 3px; }
 .ctitle { font-weight: 700; font-size: 18px; margin: 2px 6px; }
-.fig { position: relative; height: clamp(240px, 40vw, 380px); }
+.fig {
+  position: relative; height: clamp(240px, 40vw, 380px);
+  /* 触摸拖动浏览数据点时不跟着页面滚动 */
+  touch-action: none;
+  user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
 .fig > svg { position: absolute; inset: 0; }
 
 /* SVG 颜色必须用 CSS 写，属性里的 var() 不生效 */
@@ -91,6 +107,7 @@ input[type='checkbox'] { width: 22px; height: 22px; flex: none; }
 textarea { width: 100%; min-height: 130px; padding: 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .err { color: #c5221f; font-size: 14px; min-height: 1.4em; }
+.err p { margin: 2px 0; }
 .soon { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 12px; }
 
 table { border-collapse: collapse; width: 100%; font-size: 15px; margin-top: 6px; }
@@ -99,12 +116,45 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowra
 tr.cur td { background: var(--yel); color: #121212; font-weight: 700; }
 details summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; }
 
+/* 闭眼模式：全屏黑幕，纵向排列，底部留一个清楚可点的退出按钮 */
 .blind {
-  position: fixed; inset: 0; background: #000; color: #3a3a3a;
-  display: none; align-items: flex-end; justify-content: center;
-  padding: 24px; z-index: 9; font-size: 14px; text-align: center;
+  position: fixed; inset: 0; background: #000; color: #8a8a8a;
+  display: none; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 16px; padding: 24px; z-index: 9; font-size: 15px; text-align: center;
 }
 .blind.on { display: flex; }
+.blind-tip { margin: 0; }
+.blind-exit {
+  width: 100%; max-width: 420px; min-height: 56px;
+  padding: 12px 20px;
+  background: var(--yel); color: #121212;
+  border: 2px solid var(--yel); border-radius: 12px;
+  font-size: 18px; font-weight: 700;
+}
+.blind-exit:focus-visible { outline: 4px solid #ffffff; outline-offset: 3px; }
+
+/* 首次运行的选择对话框 */
+.firstrun {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.62);
+}
+.firstrun-card {
+  width: 100%; max-width: 420px;
+  padding: 24px;
+  background: var(--bg); color: var(--ink);
+  border: 1.5px solid var(--line); border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.firstrun-card h2 { margin: 0 0 8px; font-size: 22px; line-height: 1.35; }
+.firstrun-card p { margin: 0 0 18px; color: var(--muted); }
+.firstrun-actions { display: grid; gap: 10px; }
+.firstrun-actions button { min-height: 56px; }
+
+/* 上一项 / 下一项：两列大按钮，方便触摸 */
+.browse { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.browse button { min-height: 56px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 footer { padding: 0 max(5vw, 16px) 32px; color: var(--muted); font-size: 14px; max-width: 1300px; }
